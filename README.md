@@ -55,7 +55,7 @@ RAG Studio is an end-to-end RAG demo that lets students:
 If you already have **Python 3.9+**, **git**, and **Tesseract** installed, the whole thing is four commands:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/rag-studio.git
+git clone https://github.com/Al-Moccardi/RAG_Demo_Lessons
 cd rag-studio
 pip install -r requirements.txt
 streamlit run app.py
