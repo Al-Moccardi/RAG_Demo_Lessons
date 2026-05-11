@@ -85,7 +85,7 @@ Your browser opens at `http://localhost:8501`. Click **📥 Download AI Articles
 cd ~/Documents          # or wherever you keep your projects
 
 # Clone
-git clone https://github.com/Al-Moccardi/RAG_Demo_Lessons
+git clone https://github.com/Al-Moccardi/RAG_Demo_Lessons.git
 
 # Enter the project
 cd rag-studio
