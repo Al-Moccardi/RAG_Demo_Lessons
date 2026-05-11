@@ -4,7 +4,6 @@
 > Built with **LangChain · FAISS · HuggingFace · Streamlit**.
 > Designed for teaching, not for production — but it works on real documents.
 
-**Prof.ssa Flora Amato** — DIETI, Università degli Studi di Napoli Federico II
 
 ---
 
