@@ -316,11 +316,27 @@ def _playground_ocr():
 # 1. CHUNKING playground
 # ──────────────────────────────────────────────
 
+# ──────────────────────────────────────────────
+# 1. CHUNKING playground — compare 5 strategies side-by-side
+# ──────────────────────────────────────────────
+
 def _playground_chunking():
-    st.markdown("#### ✂️ Chunking demo")
+    """
+    Side-by-side comparison of 5 different chunking strategies:
+      Character, Recursive, Token-based, Sentence-based, Semantic.
+
+    Lets students see how the SAME text produces very different chunks
+    depending on the algorithm — one of the most pedagogically useful
+    visualisations in the whole app.
+    """
+    from utilities.chunking_strategies import CHUNKING_STRATEGIES
+
+    st.markdown("#### ✂️ Chunking — compare 5 strategies")
     st.caption(
-        "**Function:** `chunker.chunk_documents(documents, config)` → "
-        "`RecursiveCharacterTextSplitter` tries `\\n\\n` → `\\n` → `\". \"` → `\" \"` → `\"\"`."
+        "Same input text, five different splitters. Notice how chunk "
+        "boundaries change: naive Character cuts mid-word, Recursive "
+        "respects paragraphs, Sentence keeps semantic units intact, "
+        "and Semantic splits ONLY where topics actually shift."
     )
 
     DEFAULT_TEXT = (
@@ -332,66 +348,152 @@ def _playground_chunking():
         "Models like BERT and GPT are based on transformers and have revolutionized NLP. "
         "Modern large language models (LLMs) routinely have billions of parameters and "
         "are trained on hundreds of gigabytes of text. They can write code, answer questions, "
-        "summarize documents and translate between dozens of languages."
+        "summarize documents and translate between dozens of languages.\n\n"
+        "Cooking pasta requires boiling salted water for at least eight minutes. "
+        "Italians prefer their pasta al dente. The right sauce can transform a simple dish "
+        "into a memorable meal. Pesto, carbonara and amatriciana are three classic options."
     )
-
-    text = st.text_area("Input text:", value=DEFAULT_TEXT, height=180)
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        chunk_size = st.slider("Chunk size", 50, 1000, 200, 25)
-    with col2:
-        chunk_overlap = st.slider("Overlap", 0, 200, 40, 10)
-    with col3:
-        min_words = st.slider("Min words / chunk", 1, 50, 5, 1)
+    text = st.text_area(
+        "Input text (the last paragraph is intentionally off-topic — "
+        "watch what the semantic splitter does with it):",
+        value=DEFAULT_TEXT, height=200,
+    )
 
     if not text.strip():
         st.warning("Type some text above.")
         return
 
-    # Run the actual chunker
-    config = RAGConfig(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        min_chunk_length=min_words,
+    # ─── Strategy picker ──────────────────────────────
+    chosen = st.multiselect(
+        "Strategies to compare",
+        options=list(CHUNKING_STRATEGIES.keys()),
+        default=["character", "recursive", "sentence", "semantic"],
+        format_func=lambda k: CHUNKING_STRATEGIES[k]["label"],
     )
-    docs = [Document(page_content=text, metadata={"source": "playground"})]
-    chunks = chunk_documents(docs, config)
-    stats = get_chunk_stats(chunks)
 
-    # ─── Stats ──────────────────────────────────────────
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Chunks", stats.get("count", 0))
-    c2.metric("Avg chars", f"{stats.get('avg_chars', 0):.0f}")
-    c3.metric("Avg words", f"{stats.get('avg_tokens', 0):.0f}")
-    c4.metric("Input chars", len(text))
-
-    # ─── Visualise each chunk in a coloured card ───────
-    if not chunks:
-        st.warning(
-            "No chunks survived the `min_chunk_length` filter. "
-            "Lower the slider or add more text."
-        )
+    if not chosen:
+        st.info("Pick at least one strategy.")
         return
 
-    st.markdown("**Chunks produced:**")
-    for i, chunk in enumerate(chunks):
-        color = CHUNK_COLORS[i % len(CHUNK_COLORS)]
-        n_chars = len(chunk.page_content)
-        n_words = len(chunk.page_content.split())
-        st.markdown(
-            f"""<div style="background:{color}1A; border-left:4px solid {color};
-                          padding:0.7rem 1rem; border-radius:0 8px 8px 0;
-                          margin:0.4rem 0;">
-                <div style="font-size:0.78rem; color:{color}; font-weight:600; margin-bottom:0.4rem;">
-                    Chunk #{i+1} · {n_chars} chars · {n_words} words
-                </div>
-                <div style="font-family: ui-monospace, Menlo, Consolas, monospace;
-                            font-size:0.85rem; line-height:1.5; color:#222;
-                            white-space:pre-wrap;">{chunk.page_content}</div>
-            </div>""",
-            unsafe_allow_html=True,
+    # ─── Parameter sliders (shared across strategies) ──
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        chunk_size = st.slider("Chunk size (chars)", 50, 1000, 250, 25,
+                                help="Used by Character, Recursive, and Token (×0.25)")
+    with col2:
+        chunk_overlap = st.slider("Overlap (chars)", 0, 200, 40, 10)
+    with col3:
+        semantic_threshold = st.slider(
+            "Semantic threshold", 0.30, 0.90, 0.55, 0.05,
+            help="Below this similarity, the semantic splitter starts a new chunk.",
         )
+
+    # ─── Run every chosen strategy ────────────────────
+    # We reuse the loaded SentenceTransformer if it's in session state
+    # (Build Pipeline populates it) — otherwise the semantic splitter
+    # has to lazy-load one, which is slow.
+    st_model = st.session_state.get("st_model")
+    if "semantic" in chosen and st_model is None:
+        st.warning(
+            "⚠️ Semantic chunking is slow without a pre-loaded model. "
+            "Click **🔨 Build Pipeline** once to warm the embedding model "
+            "(or skip the semantic strategy)."
+        )
+
+    results = {}
+    import time as _time
+    for key in chosen:
+        strat = CHUNKING_STRATEGIES[key]
+        t0 = _time.time()
+        try:
+            if key == "character":
+                chunks = strat["func"](text, chunk_size=chunk_size,
+                                         chunk_overlap=chunk_overlap)
+            elif key == "recursive":
+                chunks = strat["func"](text, chunk_size=chunk_size,
+                                         chunk_overlap=chunk_overlap)
+            elif key == "token":
+                # Roughly: 4 chars ~ 1 token, so derive a reasonable token target.
+                chunks = strat["func"](text,
+                                         chunk_tokens=max(20, chunk_size // 4),
+                                         chunk_overlap_tokens=max(2, chunk_overlap // 4))
+            elif key == "sentence":
+                chunks = strat["func"](text, sentences_per_chunk=4, overlap_sentences=1)
+            elif key == "semantic":
+                chunks = strat["func"](text,
+                                         embedding_model=st_model,
+                                         similarity_threshold=semantic_threshold)
+            else:
+                chunks = []
+            elapsed_ms = (_time.time() - t0) * 1000
+        except Exception as e:
+            chunks, elapsed_ms = [], -1
+            st.error(f"{strat['label']} failed: {e}")
+        results[key] = {"chunks": chunks, "elapsed_ms": elapsed_ms}
+
+    # ─── Summary table ────────────────────────────────
+    st.markdown("##### 📊 Strategy comparison")
+    import pandas as pd
+    summary_rows = []
+    for key, r in results.items():
+        chs = r["chunks"]
+        if chs:
+            lens = [len(c) for c in chs]
+            summary_rows.append({
+                "Strategy":  CHUNKING_STRATEGIES[key]["label"],
+                "Chunks":    len(chs),
+                "Avg chars": int(sum(lens) / len(lens)),
+                "Min":       min(lens),
+                "Max":       max(lens),
+                "Time (ms)": f"{r['elapsed_ms']:.1f}" if r['elapsed_ms'] >= 0 else "—",
+            })
+        else:
+            summary_rows.append({
+                "Strategy": CHUNKING_STRATEGIES[key]["label"],
+                "Chunks": 0, "Avg chars": 0, "Min": 0, "Max": 0,
+                "Time (ms)": "—",
+            })
+    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+    # ─── Visualize each strategy's chunks ─────────────
+    st.markdown("##### 📦 Chunks produced (by strategy)")
+    for key in chosen:
+        strat = CHUNKING_STRATEGIES[key]
+        r = results[key]
+        with st.expander(
+            f"{strat['label']} · {len(r['chunks'])} chunks · {strat['tagline']}",
+            expanded=(len(chosen) <= 2),
+        ):
+            if not r["chunks"]:
+                st.caption("(no chunks produced)")
+                continue
+            for i, chunk_text in enumerate(r["chunks"]):
+                color = CHUNK_COLORS[i % len(CHUNK_COLORS)]
+                n_chars = len(chunk_text)
+                n_words = len(chunk_text.split())
+                st.markdown(
+                    f"""<div style="background:{color}1A; border-left:4px solid {color};
+                                  padding:0.6rem 0.9rem; border-radius:0 8px 8px 0;
+                                  margin:0.35rem 0;">
+                        <div style="font-size:0.74rem; color:{color}; font-weight:600;
+                                    margin-bottom:0.35rem;">
+                            #{i+1} · {n_chars} chars · {n_words} words
+                        </div>
+                        <div style="font-family: ui-monospace, Menlo, Consolas, monospace;
+                                    font-size:0.82rem; line-height:1.5; color:#222;
+                                    white-space:pre-wrap;">{chunk_text}</div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
+    # ─── Pedagogical takeaway ─────────────────────────
+    st.info(
+        "💡 **Try this:** drop the semantic threshold to 0.40. Now the "
+        "splitter only fires on really sharp topic changes — the cooking "
+        "paragraph will likely be in its own chunk, while everything about "
+        "neural networks stays grouped together. That's the whole point of "
+        "semantic chunking — boundaries fall at MEANING, not at fixed sizes."
+    )
 
 
 # ──────────────────────────────────────────────

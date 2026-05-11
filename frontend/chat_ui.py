@@ -14,6 +14,18 @@ def render_chat():
 
     st.markdown("### 💬 Chat with your documents")
 
+    # Toggle: stream vs. block
+    # Streaming makes the app feel alive (first token in <1s) but uses a
+    # background thread. Blocking is simpler if you're debugging.
+    col_a, col_b = st.columns([1, 4])
+    with col_a:
+        use_streaming = st.toggle(
+            "⚡ Stream",
+            value=True,
+            help="Stream tokens as they're generated (recommended). "
+                 "Disable to see the answer all at once at the end.",
+        )
+
     # Initialize chat history in session state
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -41,13 +53,58 @@ def render_chat():
             return
 
         with st.chat_message("assistant"):
-            with st.spinner("🔍 Retrieving & generating..."):
-                response: RAGResponse = pipeline.ask(prompt)
+            if use_streaming:
+                # ─── STREAMING PATH ─────────────────────────────
+                # ask_stream yields:
+                #   1. dict {"event": "sources", "sources": ...}
+                #   2. str pieces of the answer (one per token batch)
+                #   3. dict {"event": "done", "answer": ..., "sources": ..., ...}
+                final_meta = None
+                full_answer = ""
 
-            # Display answer
-            st.markdown(response.answer)
+                # st.write_stream consumes a generator of strings. We
+                # filter out the metadata payloads (dicts) and let only
+                # the strings through.
+                def _string_stream():
+                    nonlocal final_meta, full_answer
+                    for piece in pipeline.ask_stream(prompt):
+                        if isinstance(piece, dict):
+                            # We can't render dicts via st.write_stream;
+                            # capture them as side-effects.
+                            if piece.get("event") == "done":
+                                final_meta = piece
+                        else:
+                            full_answer += piece
+                            yield piece
 
-            # Build sources display
+                # st.write_stream displays each yielded piece as it
+                # arrives AND returns the assembled string at the end.
+                st.write_stream(_string_stream())
+
+                # Reconstruct a RAGResponse-like object for the sources display.
+                if final_meta is None:
+                    final_meta = {
+                        "answer":   full_answer,
+                        "sources":  [],
+                        "elapsed":  0.0,
+                        "n_chunks": 0,
+                    }
+
+                response = RAGResponse(
+                    answer=final_meta.get("answer", full_answer),
+                    sources=final_meta.get("sources", []),
+                    query=prompt,
+                    elapsed=final_meta.get("elapsed", 0.0),
+                    n_chunks=final_meta.get("n_chunks", 0),
+                    prompt=final_meta.get("prompt", ""),
+                )
+            else:
+                # ─── BLOCKING PATH (legacy / for debugging) ───
+                with st.spinner("🔍 Retrieving & generating..."):
+                    response: RAGResponse = pipeline.ask(prompt)
+                st.markdown(response.answer)
+
+            # Sources expander
             sources_html = _build_sources_html(response)
             with st.expander(f"📚 {response.n_chunks} sources retrieved in {response.elapsed:.1f}s"):
                 st.markdown(sources_html, unsafe_allow_html=True)

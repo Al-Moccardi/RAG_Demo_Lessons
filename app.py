@@ -12,9 +12,9 @@ This file:
   3. AUTO-LOADS a previously-cached pipeline if one exists
   4. Manages the pipeline lifecycle
        Download → Load → Chunk → Embed → Index → Load LLM → Chain → Save cache
-  5. Routes between seven pages:
+  5. Routes between eight pages:
        🏠 Home  ·  💬 Chat  ·  📊 Analytics  ·  📚 Knowledge Base  ·
-       🎮 Playground  ·  🧪 Advanced  ·  🚀 GitHub Push
+       🎮 Playground  ·  🧪 Advanced  ·  📏 Evaluation  ·  🚀 GitHub Push
 
 PERSISTENCE
 -----------
@@ -45,6 +45,7 @@ from frontend.analytics_ui import render_analytics
 from frontend.data_management_ui import render_data_management
 from frontend.playground_ui import render_playground
 from frontend.advanced_ui import render_advanced
+from frontend.evaluation_ui import render_evaluation
 from frontend.github_push_ui import render_github_push
 
 from backend.config import RAGConfig, DEFAULT_CONFIG, WIKI_TOPICS
@@ -314,13 +315,14 @@ else:
 # MAIN CONTENT: Page Router (5 tabs)
 # ═══════════════════════════════════════════════
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🏠 Home",
     "💬 Chat",
     "📊 Analytics",
     "📚 Knowledge Base",
     "🎮 Playground",
     "🧪 Advanced",
+    "📏 Evaluation",
     "🚀 GitHub Push",
 ])
 
@@ -343,4 +345,7 @@ with tab6:
     render_advanced()
 
 with tab7:
+    render_evaluation()
+
+with tab8:
     render_github_push()
